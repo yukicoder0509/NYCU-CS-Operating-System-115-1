@@ -1,0 +1,4 @@
+# C compile output
+*.out
+*.o
+*.exe
