@@ -9,27 +9,20 @@
 
 // args is passed by reference because we are assigning a new memory block to it within the function
 // line is passed by reference because strtok modifies the original string
-void parseArgs(char** *args, char* *line, int len){
-    if(!len) return;
-
-    // count num of arguments
+void parseArgs(char** *args, char* *line){
+    char *ptr = NULL, *arg = NULL;
     int argumentCount = 0;
-    char lastCharacter = (*line)[0];
-    char *ptr = NULL;
 
-    for(int i = 1; i < len; i++){
-        if(isalpha(lastCharacter) && 
-            ((*line)[i] == ' ' || (*line)[i] == '\n')) argumentCount++;
-        lastCharacter = (*line)[i];
-    }
-
-    *args = (char **)malloc(argumentCount * sizeof(char *));
-
-    (*args)[0] = strtok_r(*line, " \t\n", &ptr);
+    *args = (char **)malloc(sizeof(char *));
+    arg = strtok_r(*line, " \t\n", &ptr);
     
-    for(int i = 1; i < argumentCount; i++){
-        (*args)[i] = NULL;
-        (*args)[i] = strtok_r(NULL, " \t\n", &ptr);
+    while(arg != NULL){
+        *args = (char **)realloc(*args, ++argumentCount * sizeof(char *));
+
+        (*args)[argumentCount-1] = NULL;
+        (*args)[argumentCount-1] = arg;
+
+        arg = strtok_r(NULL, " \t\n", &ptr);
     }
 }
 
@@ -63,7 +56,7 @@ int main() {
         read = getline(&line, &len, stdin);
         
         // parse the command line into arguments
-        parseArgs(&args, &line, len);
+        parseArgs(&args, &line);
 
         // execute the command
         executeCommand(args);
