@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/wait.h>
 
 #define DEBUG
 
@@ -32,6 +33,23 @@ void parseArgs(char** *args, char* *line, int len){
     }
 }
 
+int executeCommand(char **args){
+    pid_t pid;
+
+    pid = fork();
+    if (pid < 0) { /* error occurred */
+        fprintf(stderr, "Fork Failed");
+        exit(-1);
+    }
+    else if (pid == 0) { /* child process */
+        execvp(args[0], args);
+    }
+    else { /* parent process */
+    /* parent will wait for the child to complete */
+        wait (NULL);
+    }
+}
+
 int main() {
     while(1){
         printf("\n> ");
@@ -48,7 +66,7 @@ int main() {
         parseArgs(&args, &line, len);
 
         // execute the command
-        execvp(args[0], args);
+        executeCommand(args);
         
         // free the allocated memory
         free(args);
