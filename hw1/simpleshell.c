@@ -30,7 +30,7 @@ void parseArgs(char** *args, char* *line, int *argumentCount){
     *args = (char **)realloc(*args, ++(*argumentCount) * sizeof(char *));
     (*args)[*argumentCount-1] = NULL;
 
-    printf("Args cnt: %d\n", *argumentCount);
+    // printf("Args cnt: %d\n", *argumentCount);
 }
 
 void executeCommand(char **args, int argumentCount){
@@ -39,7 +39,7 @@ void executeCommand(char **args, int argumentCount){
     if(argumentCount <= 1) return;
 
     bool isEndWithAnd = (strcmp(args[argumentCount-2], "&") == 0); // the real last argument is argumentCount-2 because the last one is filled with NULL
-    printf("isEndWithAnd: %d\n", isEndWithAnd);
+    // printf("isEndWithAnd: %d\n", isEndWithAnd);
 
     if(isEndWithAnd){
         args[argumentCount-2] = NULL;
@@ -51,18 +51,41 @@ void executeCommand(char **args, int argumentCount){
         exit(-1);
     }
     else if (pid == 0) { /* child process */
-        execvp(args[0], args);
+        if(!isEndWithAnd){
+            execvp(args[0], args);
 
-        // if execvp returns, it must have failed. we need to exit this child process
-        perror("execvp");
-        exit(EXIT_FAILURE);
+            // if execvp returns, it must have failed. we need to exit this child process
+            perror("execvp");
+            exit(EXIT_FAILURE);
+        }
+
+        // if end with '&'. the main shell process won't wait for it.
+        // double fork to prevent zombie process and allow the main shell to continue without waiting
+        else{
+            pid_t pid2;
+            pid2 = fork();
+
+            if (pid2 < 0) { /* fork creation failed */
+                fprintf(stderr, "Fork Failed");
+                exit(-1);
+            }
+            else if (pid2 == 0){ /* grand child process */
+                execvp(args[0], args);
+
+                // if execvp returns, it must have failed. we need to exit this child process
+                perror("execvp");
+                exit(EXIT_FAILURE);
+            }
+            else {
+                // the child process exit immediatly, leaving the grand child process as an orphan process.
+                // acheiving the purpose of double-fork.
+                exit(0);
+            }
+        }
     }
     else { /* parent process */
     /* parent will wait for the child to complete */
-        if(!isEndWithAnd){
-            printf("waiting\n");
-            waitpid(pid, NULL, 0);
-        }
+        waitpid(pid, NULL, 0);
     }
 }
 
