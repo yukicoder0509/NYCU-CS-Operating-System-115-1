@@ -5,6 +5,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <sys/types.h>
+#include <fcntl.h>
 
 #define DEBUG
 
@@ -32,30 +34,6 @@ void parseArgs(char** *args, char* *line, int *argumentCount){
     (*args)[*argumentCount-1] = NULL;
 
     // printf("Args cnt: %d\n", *argumentCount);
-}
-
-// parse input/output redirection direction
-// Including '<' for input redirection, '>' for output redirection, and '|' for pipe
-#define INPUT_REDIRECTION '<'
-#define OUTPUT_REDIRECTION '>'
-#define PIPE '|'
-int parseIODirection(char **args, int argumentCount){
-    // the last argument is always NULL
-    for(int i=0; i<argumentCount-1; i++){
-        if(strcmp(args[i], "<") == 0){
-            // handle input redirection
-            return INPUT_REDIRECTION;
-        }
-        else if(strcmp(args[i], ">") == 0){
-            // handle output redirection
-            return OUTPUT_REDIRECTION;
-        }
-        else if(strcmp(args[i], "|") == 0){
-            // handle pipe
-            return PIPE;
-        }
-    }
-    return 0; // no redirection or pipe found
 }
 
 void executeSingleCommand(char **args, int argumentCount){
@@ -111,10 +89,76 @@ void executeSingleCommand(char **args, int argumentCount){
     }
 }
 
+// args2 is expected to point to a file name for output redirection
+void executeOutputRedirection(char **args, char **args2){
+    pid_t pid = fork();
+
+    if (pid < 0) { /* error occurred */
+        fprintf(stderr, "Fork Failed");
+        exit(-1);
+    }
+    else if (pid == 0) { /* child process */
+        // open target output file
+        int fd = open(args2[0], O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd < 0){
+            perror("open file failed");
+            exit(1);
+        }
+
+        // redirect standard output to the file descriptor
+        dup2(fd, STDOUT_FILENO);
+
+        // close the file descriptor, complete the redirection
+        close(fd);
+
+        // execute the command normally
+        execvp(args[0], args);
+
+        // if execvp returns, it must have failed. we need to exit this child process
+        perror("execvp");
+        exit(EXIT_FAILURE);
+        
+    }
+    else { /* parent process */
+    /* parent will wait for the child to complete */
+        waitpid(pid, NULL, 0);
+    }
+}
+
+#define INPUT_REDIRECTION '<'
+#define OUTPUT_REDIRECTION '>'
+#define PIPE '|'
 void executeCommand(char **args, int argumentCount){
     if(argumentCount <= 1) return;
 
-    int IODirectionFlag = parseIODirection(args, argumentCount);
+    // parse input/output redirection direction
+    // Including '<' for input redirection, '>' for output redirection, and '|' for pipe
+    int IODirectionFlag = 0;
+    char **args2 = NULL;
+
+    for(int i=0; i<argumentCount-1; i++){
+        if(strcmp(args[i], "<") == 0){
+            // handle input redirection
+            IODirectionFlag = INPUT_REDIRECTION;
+            args2 = &args[i+1];
+            args[i] = NULL;
+            break;
+        }
+        else if(strcmp(args[i], ">") == 0){
+            // handle output redirection
+            IODirectionFlag = OUTPUT_REDIRECTION;
+            args2 = &args[i+1];
+            args[i] = NULL;
+            break;
+        }
+        else if(strcmp(args[i], "|") == 0){
+            // handle pipe
+            IODirectionFlag = PIPE;
+            args2 = &args[i+1];
+            args[i] = NULL;
+            break;
+        }
+    }
     
     switch(IODirectionFlag){
         case INPUT_REDIRECTION:
@@ -122,6 +166,8 @@ void executeCommand(char **args, int argumentCount){
             break;
         case OUTPUT_REDIRECTION:
             // handle output redirection
+            // args2 is expected to point to a file name
+            executeOutputRedirection(args, args2);
             break;
         case PIPE:
             // handle pipe
