@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -33,13 +34,34 @@ void parseArgs(char** *args, char* *line, int *argumentCount){
     // printf("Args cnt: %d\n", *argumentCount);
 }
 
-void executeCommand(char **args, int argumentCount){
+// parse input/output redirection direction
+// Including '<' for input redirection, '>' for output redirection, and '|' for pipe
+#define INPUT_REDIRECTION '<'
+#define OUTPUT_REDIRECTION '>'
+#define PIPE '|'
+int parseIODirection(char **args, int argumentCount){
+    // the last argument is always NULL
+    for(int i=0; i<argumentCount-1; i++){
+        if(strcmp(args[i], "<") == 0){
+            // handle input redirection
+            return INPUT_REDIRECTION;
+        }
+        else if(strcmp(args[i], ">") == 0){
+            // handle output redirection
+            return OUTPUT_REDIRECTION;
+        }
+        else if(strcmp(args[i], "|") == 0){
+            // handle pipe
+            return PIPE;
+        }
+    }
+    return 0; // no redirection or pipe found
+}
+
+void executeSingleCommand(char **args, int argumentCount){
     pid_t pid;
 
-    if(argumentCount <= 1) return;
-
     bool isEndWithAnd = (strcmp(args[argumentCount-2], "&") == 0); // the real last argument is argumentCount-2 because the last one is filled with NULL
-    // printf("isEndWithAnd: %d\n", isEndWithAnd);
 
     if(isEndWithAnd){
         args[argumentCount-2] = NULL;
@@ -89,9 +111,30 @@ void executeCommand(char **args, int argumentCount){
     }
 }
 
+void executeCommand(char **args, int argumentCount){
+    if(argumentCount <= 1) return;
+
+    int IODirectionFlag = parseIODirection(args, argumentCount);
+    
+    switch(IODirectionFlag){
+        case INPUT_REDIRECTION:
+            // handle input redirection
+            break;
+        case OUTPUT_REDIRECTION:
+            // handle output redirection
+            break;
+        case PIPE:
+            // handle pipe
+            break;
+        default:
+            executeSingleCommand(args, argumentCount);
+            break;
+    }
+}
+
 int main() {
     while(1){
-        printf("\n> ");
+        printf("> ");
         fflush(stdout);
         
         char *line = NULL;
