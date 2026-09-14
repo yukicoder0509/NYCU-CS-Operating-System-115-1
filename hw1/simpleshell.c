@@ -160,11 +160,68 @@ void executeInputRedirection(char **args, char **args2){
     }
 }
 
+void executePipe(char **args, char **args2){
+    pid_t pid, pid2;
+    // create a pipe
+    int p[2];
+
+    if(pipe(p) == -1){
+        perror("open pipe failed");
+        exit(1);
+    }
+
+    // execute the first command
+    pid = fork();
+    if (pid < 0) { /* error occurred */
+        fprintf(stderr, "Fork Failed");
+        exit(-1);
+    }
+    else if (pid == 0) { /* child process */
+        // write the output of the first command to pipe
+        dup2(p[1], STDOUT_FILENO);
+        execvp(args[0], args);
+
+        // if execvp returns, it must have failed. we need to exit this child process
+        perror("execvp");
+        exit(EXIT_FAILURE);
+    }
+    else { /* parent process */
+    /* parent will wait for the child to complete */
+        waitpid(pid, NULL, 0);
+        close(p[1]); // close write end of the pipe in the parent process
+    }
+
+    // execute the second command
+    pid2 = fork();
+    if (pid2 < 0) { /* error occurred */
+        fprintf(stderr, "Fork Failed");
+        exit(-1);
+    }
+    else if (pid2 == 0) { /* child process */
+        // read the input of the second command from pipe
+        dup2(p[0], STDIN_FILENO);
+        execvp(args2[0], args2);
+
+        // if execvp returns, it must have failed. we need to exit this child process
+        perror("execvp");
+        exit(EXIT_FAILURE);
+    }
+    else { /* parent process */
+    /* parent will wait for the child to complete */
+        waitpid(pid2, NULL, 0);
+        close(p[0]); // close read end of the pipe in the parent process
+    }
+}
+
 #define INPUT_REDIRECTION '<'
 #define OUTPUT_REDIRECTION '>'
 #define PIPE '|'
 void executeCommand(char **args, int argumentCount){
     if(argumentCount <= 1) return;
+
+    if(strcmp(args[0], "exit") == 0){
+        exit(0);
+    }
 
     // parse input/output redirection direction
     // Including '<' for input redirection, '>' for output redirection, and '|' for pipe
@@ -207,6 +264,7 @@ void executeCommand(char **args, int argumentCount){
             break;
         case PIPE:
             // handle pipe
+            executePipe(args, args2);
             break;
         default:
             executeSingleCommand(args, argumentCount);
