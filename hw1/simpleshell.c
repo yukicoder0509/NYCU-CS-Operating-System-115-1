@@ -125,6 +125,41 @@ void executeOutputRedirection(char **args, char **args2){
     }
 }
 
+void executeInputRedirection(char **args, char **args2){
+    pid_t pid = fork();
+
+    if (pid < 0) { /* error occurred */
+        fprintf(stderr, "Fork Failed");
+        exit(-1);
+    }
+    else if (pid == 0) { /* child process */
+        // open target input file
+        int fd = open(args2[0], O_RDONLY);
+        if (fd < 0){
+            perror("open file failed");
+            exit(1);
+        }
+
+        // redirect standard input to the file descriptor
+        dup2(fd, STDIN_FILENO);
+
+        // close the file descriptor, complete the redirection
+        close(fd);
+
+        // execute the command normally
+        execvp(args[0], args);
+
+        // if execvp returns, it must have failed. we need to exit this child process
+        perror("execvp");
+        exit(EXIT_FAILURE);
+        
+    }
+    else { /* parent process */
+    /* parent will wait for the child to complete */
+        waitpid(pid, NULL, 0);
+    }
+}
+
 #define INPUT_REDIRECTION '<'
 #define OUTPUT_REDIRECTION '>'
 #define PIPE '|'
@@ -163,6 +198,7 @@ void executeCommand(char **args, int argumentCount){
     switch(IODirectionFlag){
         case INPUT_REDIRECTION:
             // handle input redirection
+            executeInputRedirection(args, args2);
             break;
         case OUTPUT_REDIRECTION:
             // handle output redirection
