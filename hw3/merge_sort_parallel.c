@@ -2,6 +2,7 @@
 #include <pthread.h>
 #include <semaphore.h>
 #include <stdbool.h>
+#include <sys/time.h>
 
 // Task type for thread
 const int SORT = 0;
@@ -17,7 +18,7 @@ typedef struct Task {
 } Task;
 
 // Global variable
-int arr[1000005];
+int arrSource[1000005], arr[1000005];
 
 // Treat merge sort process as a tree, the doneSections[i] means whether the node i in the tree is done.
 // This can indicate whether two sub sequences are ready to be merged.
@@ -90,8 +91,8 @@ void createMergeSortJobs(int idx){
         sortTask.type = SORT;
         sortTask.section = idx;
         sortTask.offset = (idx - 8) * (N / 8);
-        if(idx == 15 && N % 8 != 0)
-            sortTask.len = N % 8;
+        if(idx == 15)
+            sortTask.len = N - (N / 8) * 7;
         else
             sortTask.len = N / 8;
         jobList[idx] = sortTask;
@@ -137,6 +138,10 @@ void* getJobFromQueue(void *args){
         }
 
         sem_wait(&jobCount_sem); // wait for the job count to be greater than 0
+
+        if (DONE) {
+            break;
+        }
 
         // printf("Getting job from queue\n");
 
@@ -256,16 +261,40 @@ int main() {
     fscanf(input, "%d", &N);
     
     for (int i = 0; i < N; i++) {
-        fscanf(input, "%d", &arr[i]);
+        fscanf(input, "%d", &arrSource[i]);
+        arr[i] = arrSource[i];
     }
 
     fclose(input);
 
     char output_filename[20];
-    snprintf(output_filename, sizeof(output_filename), "output%d.txt", 2);
+    struct timeval start, end;
 
-    mergeSort_parallel(2); // You can change the number of threads as needed
+    for (int n_worker = 1; n_worker <= 8; n_worker++){
+        // reset global variables
+        for (int i = 0; i < N; i++) {
+            arr[i] = arrSource[i];
+        }
 
-    // Write output file
-    writeOutput(output_filename);
+        DONE = false;
+        for(int i = 0; i < 16; i++){
+            doneSections[i] = false;
+            jobDispatched[i] = false;
+        }
+
+        gettimeofday(&start, 0);
+
+        mergeSort_parallel(n_worker); // You can change the number of threads as needed
+        
+        gettimeofday(&end, 0);
+
+        long seconds = end.tv_sec - start.tv_sec;
+        long microseconds = end.tv_usec - start.tv_usec;
+        double elapsed = seconds + microseconds*1e-6;
+        printf("worker thread #%d, elapsed %.6f ms\n", n_worker, elapsed*1000);
+
+        // Write output file
+        snprintf(output_filename, sizeof(output_filename), "output_%d.txt", n_worker);
+        writeOutput(output_filename);
+    }
 }
