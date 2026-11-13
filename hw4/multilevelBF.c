@@ -1,0 +1,207 @@
+/*
+ * HW4: malloc() replacement — Best Fit with a multilevel free list.
+ *
+ * Build:  gcc -shared -fPIC multilevelBF.c -o multilevelBF.so
+ * Run:    LD_PRELOAD=$PWD/multilevelBF.so ./main
+ *
+ * Rules from the spec:
+ *   - Pool: 20,000 bytes from mmap() on the first malloc().
+ *   - Header: exactly 32 bytes.
+ *   - Request sizes rounded up to a multiple of 32; returned ptrs 32-byte aligned.
+ *   - Chunk list: all chunks (used + free) in address order.
+ *   - Free lists: 11 levels, level i holds free chunks with size in [2^i, 2^(i+1))
+ *     (level 0 = [0,32), level 1 = [32,64), ..., level 10 = [16384,32768)).
+ *   - malloc: begin at the best-fitting level; within a level take the FIRST
+ *     best-fitting chunk (smallest that fits, ties -> earliest in list);
+ *     if none, go to the next higher level. Split if necessary.
+ *   - free: mark free, merge with free neighbours (removing them from the free
+ *     lists), APPEND the result to the END of its level's list.
+ *   - malloc(0): print "Max Free Chunk Size = N\n" (N excludes header), munmap.
+ *   - Do NOT call printf/fopen/etc. here — they may call malloc() themselves.
+ */
+
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>      /* snprintf only */
+#include <string.h>
+#include <sys/mman.h>
+#include <unistd.h>
+
+#define POOL_SIZE   20000
+#define HEADER_SIZE 32
+#define ALIGN       32
+#define NUM_LEVELS  11
+
+/* ------------------------------------------------------------------ */
+/* Header (metadata) — must be exactly 32 bytes                        */
+/* ------------------------------------------------------------------ */
+typedef struct chunk {
+    size_t        size;       /* data size, excluding header            */
+    struct chunk *prev;       /* previous chunk in memory (chunk list)  */
+    struct chunk *next_free;  /* next chunk in this level's free list   */
+    uint32_t      is_free;
+    uint32_t      _pad;       /* pad to 32 bytes                         */
+    /*
+     * Design note: the next chunk in memory can be computed as
+     *   (chunk_t *)((char *)c + HEADER_SIZE + c->size)
+     * so only `prev` needs storing. If you want a doubly linked free list
+     * (O(1) removal) you'll have to repack this — e.g. steal low bits of a
+     * pointer for is_free, or store 32-bit offsets instead of pointers.
+     */
+} chunk_t;
+
+_Static_assert(sizeof(chunk_t) == HEADER_SIZE, "header must be exactly 32 bytes");
+
+/* ------------------------------------------------------------------ */
+/* Global state                                                        */
+/* ------------------------------------------------------------------ */
+static void    *pool = NULL;                  /* start of mmap'd pool */
+static chunk_t *free_lists[NUM_LEVELS];       /* head of each level   */
+
+/* ------------------------------------------------------------------ */
+/* Small helpers (done)                                                */
+/* ------------------------------------------------------------------ */
+static inline size_t round_up(size_t n) {
+    return (n + ALIGN - 1) & ~(size_t)(ALIGN - 1);
+}
+
+static inline void *chunk_to_ptr(chunk_t *c) {
+    return (char *)c + HEADER_SIZE;
+}
+
+static inline chunk_t *ptr_to_chunk(void *p) {
+    return (chunk_t *)((char *)p - HEADER_SIZE);
+}
+
+/* Next chunk in memory, or NULL if c is the last one in the pool. */
+static inline chunk_t *next_chunk(chunk_t *c) {
+    char *n = (char *)c + HEADER_SIZE + c->size;
+    return (n < (char *)pool + POOL_SIZE) ? (chunk_t *)n : NULL;
+}
+
+static void print_str(const char *s) {
+    write(STDOUT_FILENO, s, strlen(s));
+}
+
+/* ------------------------------------------------------------------ */
+/* Core logic — TODO                                                   */
+/* ------------------------------------------------------------------ */
+
+/* Map a chunk size to its level: [0,32)->0, [32,64)->1, ..., clamp to 10. */
+static int level_of(size_t size) {
+    /* TODO */
+    (void)size;
+    return 0;
+}
+
+/* Append c to the END of its level's free list. */
+static void freelist_append(chunk_t *c) {
+    /* TODO */
+    (void)c;
+}
+
+/* Remove c from its level's free list. */
+static void freelist_remove(chunk_t *c) {
+    /* TODO */
+    (void)c;
+}
+
+/*
+ * Search levels starting at level_of(size). Within a level, pick the FIRST
+ * chunk with the smallest c->size >= size. Return NULL if nothing fits.
+ */
+static chunk_t *find_best_fit(size_t size) {
+    /* TODO */
+    (void)size;
+    return NULL;
+}
+
+/*
+ * c is a free chunk already removed from the free lists, c->size >= size.
+ * If the leftover is big enough to hold a header (+ data?), carve a new free
+ * chunk after it, fix up prev links, and put the leftover in the free lists.
+ * Decide: what is the minimum leftover worth splitting off?
+ */
+static void split_chunk(chunk_t *c, size_t size) {
+    /* TODO */
+    (void)c; (void)size;
+}
+
+/*
+ * c was just freed. Merge with the next and/or previous chunk in memory if
+ * they are free (remove them from the free lists first). Return the
+ * resulting chunk (may be c->prev if merged backwards).
+ */
+static chunk_t *coalesce(chunk_t *c) {
+    /* TODO */
+    return c;
+}
+
+/* Largest free data size (excluding header) across the whole pool. */
+static size_t max_free_chunk(void) {
+    /* TODO: walk the chunk list or the free lists */
+    return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Pool init / teardown (done)                                         */
+/* ------------------------------------------------------------------ */
+static int pool_init(void) {
+    pool = mmap(NULL, POOL_SIZE, PROT_READ | PROT_WRITE,
+                MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (pool == MAP_FAILED) {
+        pool = NULL;
+        return -1;
+    }
+    memset(free_lists, 0, sizeof(free_lists));
+
+    chunk_t *first   = (chunk_t *)pool;
+    first->size      = POOL_SIZE - HEADER_SIZE;
+    first->prev      = NULL;
+    first->next_free = NULL;
+    first->is_free   = 1;
+    freelist_append(first);
+    return 0;
+}
+
+static void pool_destroy(void) {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "Max Free Chunk Size = %zu\n", max_free_chunk());
+    print_str(buf);
+    munmap(pool, POOL_SIZE);
+    pool = NULL;
+}
+
+/* ------------------------------------------------------------------ */
+/* Public API                                                          */
+/* ------------------------------------------------------------------ */
+void *malloc(size_t size) {
+    if (!pool && pool_init() != 0)
+        return NULL;
+
+    if (size == 0) {            /* end-of-test signal */
+        pool_destroy();
+        return NULL;
+    }
+
+    size = round_up(size);
+
+    chunk_t *c = find_best_fit(size);
+    if (!c)
+        return NULL;
+
+    freelist_remove(c);
+    split_chunk(c, size);
+    c->is_free = 0;
+    return chunk_to_ptr(c);
+}
+
+void free(void *ptr) {
+    if (!ptr || !pool)
+        return;
+
+    chunk_t *c = ptr_to_chunk(ptr);
+    c->is_free = 1;
+    c = coalesce(c);
+    freelist_append(c);
+}
