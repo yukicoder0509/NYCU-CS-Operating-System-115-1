@@ -90,20 +90,37 @@ static void print_str(const char *s) {
 /* Map a chunk size to its level: [0,32)->0, [32,64)->1, ..., clamp to 10. */
 static int level_of(size_t size) {
     /* TODO */
-    (void)size;
-    return 0;
+    int level = 0;
+    size_t chunk_size = 32;
+
+    for(; level < NUM_LEVELS; level++, chunk_size *= 2)
+        if(size < chunk_size) return level;
+    return NUM_LEVELS - 1;
 }
 
 /* Append c to the END of its level's free list. */
 static void freelist_append(chunk_t *c) {
     /* TODO */
-    (void)c;
+    int level = level_of(c->size);
+    c->next_free = NULL;
+    if(!free_lists[level]) free_lists[level] = c;
+    else {
+        chunk_t *cur = free_lists[level];
+        while(cur->next_free) cur = cur->next_free;
+        cur->next_free = c;
+    }
 }
 
 /* Remove c from its level's free list. */
 static void freelist_remove(chunk_t *c) {
     /* TODO */
-    (void)c;
+    int level = level_of(c->size);
+    if(free_lists[level] == c) free_lists[level] = c->next_free;
+    else {
+        chunk_t *cur = free_lists[level];
+        while(cur && cur->next_free != c) cur = cur->next_free;
+        if(cur) cur->next_free = c->next_free;
+    }
 }
 
 /*
@@ -112,8 +129,16 @@ static void freelist_remove(chunk_t *c) {
  */
 static chunk_t *find_best_fit(size_t size) {
     /* TODO */
-    (void)size;
-    return NULL;
+    int level = level_of(size);
+    chunk_t *cur, *best = NULL;
+    while(level < NUM_LEVELS){
+        for(cur = free_lists[level]; cur; cur = cur->next_free){
+            if(cur->size >= size && (!best || cur->size < best->size)) best = cur;
+        }
+        if(best) return best;
+        level++;
+    }
+    return best;
 }
 
 /*
@@ -124,7 +149,17 @@ static chunk_t *find_best_fit(size_t size) {
  */
 static void split_chunk(chunk_t *c, size_t size) {
     /* TODO */
-    (void)c; (void)size;
+    size_t leftover = c->size - size;
+    if(leftover > HEADER_SIZE) {
+        chunk_t *after = next_chunk(c);   /* chunk after c, before resizing */
+        chunk_t *newc = (chunk_t *)((char *)c + size + HEADER_SIZE);
+        newc->size = leftover - HEADER_SIZE;
+        newc->prev = c;
+        newc->is_free = 1;
+        if(after) after->prev = newc;
+        c->size = size;
+        freelist_append(newc);
+    }
 }
 
 /*
@@ -134,13 +169,30 @@ static void split_chunk(chunk_t *c, size_t size) {
  */
 static chunk_t *coalesce(chunk_t *c) {
     /* TODO */
+    if(c->prev && c->prev->is_free) {
+        freelist_remove(c->prev);
+        c->prev->size += c->size + HEADER_SIZE;
+        c = c->prev;
+    }
+    chunk_t *nxt = next_chunk(c);         /* NULL at end of pool */
+    if(nxt && nxt->is_free) {
+        freelist_remove(nxt);
+        c->size += nxt->size + HEADER_SIZE;
+    }
+    nxt = next_chunk(c);
+    if(nxt) nxt->prev = c;
     return c;
 }
 
 /* Largest free data size (excluding header) across the whole pool. */
 static size_t max_free_chunk(void) {
     /* TODO: walk the chunk list or the free lists */
-    return 0;
+    size_t largest = 0;
+    for(int i = 0; i < NUM_LEVELS; i++){
+        for(chunk_t *cur = free_lists[i]; cur; cur = cur->next_free)
+            if(cur->size > largest) largest = cur->size;
+    }
+    return largest;
 }
 
 /* ------------------------------------------------------------------ */
