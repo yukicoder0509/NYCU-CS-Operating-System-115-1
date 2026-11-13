@@ -195,6 +195,25 @@ static size_t max_free_chunk(void) {
     return largest;
 }
 
+/*
+ * True only if c is the start of a chunk that is currently allocated.
+ * Checks the address against the real chunk list rather than trusting the
+ * header, so foreign pointers, pointers into the middle of a block, and
+ * double frees are all rejected. The pool holds at most ~300 chunks, so the
+ * walk is cheap.
+ */
+static int is_allocated_chunk(chunk_t *c) {
+    char *p = (char *)c;
+    if (p < (char *)pool || p >= (char *)pool + POOL_SIZE)
+        return 0;
+    if ((uintptr_t)(p - (char *)pool) % ALIGN != 0)
+        return 0;
+    for (chunk_t *cur = (chunk_t *)pool; cur; cur = next_chunk(cur))
+        if (cur == c)
+            return !cur->is_free;
+    return 0;
+}
+
 /* ------------------------------------------------------------------ */
 /* Pool init / teardown (done)                                         */
 /* ------------------------------------------------------------------ */
@@ -236,6 +255,10 @@ void *malloc(size_t size) {
         return NULL;
     }
 
+    /* Reject before rounding: round_up() wraps to 0 for sizes near SIZE_MAX. */
+    if (size > POOL_SIZE - HEADER_SIZE)
+        return NULL;
+
     size = round_up(size);
 
     chunk_t *c = find_best_fit(size);
@@ -253,6 +276,8 @@ void free(void *ptr) {
         return;
 
     chunk_t *c = ptr_to_chunk(ptr);
+    if (!is_allocated_chunk(c))     /* foreign pointer, mid-chunk, or double free */
+        return;
     c->is_free = 1;
     c = coalesce(c);
     freelist_append(c);
