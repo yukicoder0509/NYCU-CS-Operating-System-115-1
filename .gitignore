@@ -2,3 +2,6 @@
 *.out
 *.o
 *.exe
+# hw5 traces (too large for GitHub)
+hw5/tests/inceptionV3_tf_oshw5.txt
+hw5/*.7z

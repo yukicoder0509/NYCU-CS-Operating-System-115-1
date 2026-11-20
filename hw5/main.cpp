@@ -389,7 +389,7 @@ private:
     Node *alloc_node();
     void  migrate();              /* working LRU -> clean-first MRU    */
     Node *select_victim();        /* LRU clean in CF region, else LRU  */
-    void  evict();
+    Node *evict();
 
     uint32_t  frames_;
     uint32_t  working_cap_;       /* frames_ * 3 / 4                   */
@@ -402,6 +402,9 @@ private:
 
     /* TODO: lists for the working region, the clean-first region,
      *       and whatever lets you find the LRU clean page in O(1). */
+    DList working_;
+    DList cf_clean_;
+    DList cf_dirty_;
 
     unsigned long __internal_bus_cycles = 0;   /* ++ on every miss; never print */
 };
@@ -413,33 +416,63 @@ CFLRUCache::CFLRUCache(uint32_t frames)
       pool_(nullptr), used_(0), table_(frames)
 {
     /* TODO: allocate pool_ */
+    pool_ = new Node[frames]();
 }
 
 CFLRUCache::~CFLRUCache()
 {
     /* TODO */
+    delete[] pool_;
 }
 
 Node *CFLRUCache::alloc_node()
 {
     /* TODO */
-    return nullptr;
+    if(used_ < frames_) return &pool_[used_++];
+    else{
+        return evict();
+    }
 }
 
 void CFLRUCache::migrate()
 {
     /* TODO */
+//     const int WORKING_REGION = 0;
+// const int CLEAN_FIRST_REGION_CLEAN = 1;
+// const int CLEAN_FIRST_REGION_DIRTY = 2;
+    Node* n = working_.pop_back();
+    if(n->dirty){
+        n->region = CLEAN_FIRST_REGION_DIRTY;
+        cf_dirty_.push_front(n);
+    }
+    else{
+        n->region = CLEAN_FIRST_REGION_CLEAN;
+        cf_clean_.push_front(n);
+    }
 }
 
 Node *CFLRUCache::select_victim()
 {
     /* TODO: no linear search! */
-    return nullptr;
+    if(!cf_clean_.empty()){
+        return cf_clean_.back();
+    }
+    else{
+        return cf_dirty_.back();
+    }
 }
 
-void CFLRUCache::evict()
+Node *CFLRUCache::evict()
 {
     /* TODO */
+    Node *victim = select_victim();
+    if(victim->dirty) stats_.write_back++;
+
+    if(victim->dirty) cf_dirty_.pop_back();
+    else cf_clean_.pop_back();
+
+    table_.erase(victim->page);
+    return victim;
 }
 
 void CFLRUCache::access(uint64_t page, bool write)
@@ -453,7 +486,33 @@ void CFLRUCache::access(uint64_t page, bool write)
      *   Think about: what happens to the clean-page index when a page
      *   changes dirty state or changes region?
      */
-    (void)page; (void)write;
+     Node* n = table_.find(page);
+     if(n){
+        stats_.hit++;
+        if(write) n->dirty = true;
+        if(n->region == WORKING_REGION){
+            working_.move_to_front(n);
+        }
+        else{
+            if(n->region == CLEAN_FIRST_REGION_CLEAN) cf_clean_.remove(n);
+            else if(n->region == CLEAN_FIRST_REGION_DIRTY) cf_dirty_.remove(n);
+
+            n->region = WORKING_REGION;
+            working_.push_front(n);
+        }
+     }
+     else{
+        stats_.miss++;
+        __internal_bus_cycles++;
+        Node* n = alloc_node();
+        n->page = page;
+        n->dirty = write;
+        n->region = WORKING_REGION;
+        working_.push_front(n);
+        table_.insert(n);
+     }
+
+     if(working_.size() > working_cap_) migrate();
 }
 
 /* ------------------------------------------------------------------ */
